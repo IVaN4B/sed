@@ -79,9 +79,6 @@ int main(int argc, char *argv[]){
 
 	if( script == "" ) return 0;
 
-	/* DEBUG */
-	fmtprint(STDOUT, "Script: %s\n", script);
-
 	/* Check if stdin has data */
 	int n = 0;
 	(void)ioctl(STDIN, I_NREAD, &n);
