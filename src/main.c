@@ -25,7 +25,6 @@ int main(int argc, char *argv[]){
 	const char *opts = "nf:hV";
 	const char *script = "";
 	int nflag = 0, hflag = 0, vflag = 0, fflag = 0;
-	char *filename = "";
 	int c;
 	while( (c = getopt(argc, argv, opts)) != -1 ){
 		switch(c){
@@ -35,7 +34,6 @@ int main(int argc, char *argv[]){
 
 			case 'f':
 				fflag = 1;
-				filename = optarg;
 				struct stat s;
 				int size;
 				int fd = open(optarg, O_RDONLY);
@@ -77,7 +75,7 @@ int main(int argc, char *argv[]){
 		script = argv[findex++];
 	}
 
-	if( script == "" ) return 0;
+	if( *script == '\0' ) return 0;
 
 	/* Check if stdin has data */
 	int n = 0;
