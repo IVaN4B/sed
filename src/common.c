@@ -1,7 +1,7 @@
 #include <unistd.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/varargs.h>
+#include <stdarg.h>
 #define NUM_BUFF 32
 
 static char *strrev(char *str) {
