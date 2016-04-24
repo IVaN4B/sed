@@ -1,3 +1,5 @@
+#ifndef CMD_H
+#define CMD_H
 #define BUFF_SIZE 	   1024
 #define NUM_BUFF_SIZE  20
 #define STDIN  0
@@ -19,6 +21,11 @@ enum serrors{
 	ERR_MAX
 };
 
+enum cmd_results{
+	RQUIT,
+	RNONE,
+};
+
 enum scmd_type{
 	SUBST,
 	GROUP,
@@ -38,6 +45,12 @@ enum saddr_type{
 	LINE_ADDR,
 
 };
+
+typedef struct sspace_t{
+	char *text;
+	int len;
+	int is_deleted;
+} sspace_t;
 
 typedef struct saddr_t{
 	enum saddr_type type;
@@ -67,4 +80,7 @@ static const char *err_msgs[ERR_MAX] = {
 
 int parse_script(const char script[], scmd_t **cmd_list);
 int run_script(const char script[], int fd, int flags);
+int run_line(scmd_t *cmd_list, sspace_t *pspace, sspace_t *hspace,
+												 const int line);
 const char *err_msg(int err_code);
+#endif

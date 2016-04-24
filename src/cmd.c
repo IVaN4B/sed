@@ -3,6 +3,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <errno.h>
+#include <fcntl.h>
 #include "cmd.h"
 #include "common.h"
 
@@ -91,14 +93,13 @@ int parse_script(const char script[], scmd_t **cmd_list){
 		}
 
 		if( num_pending ){
-			if( baddr == NULL ){
-				baddr = malloc(sizeof(saddr_t));
-				baddr->type = LINE_ADDR;
-				baddr->line = num;
-			}else if( eaddr == NULL ){
-				eaddr = malloc(sizeof(saddr_t));
-				eaddr->type = LINE_ADDR;
-				eaddr->line = num;
+			saddr_t *p;
+			if( baddr == NULL || eaddr == NULL ){
+				p = malloc(sizeof(saddr_t));
+				p->type = LINE_ADDR;
+				p->line = num;
+				if( baddr == NULL )      baddr = p;
+				else if( eaddr == NULL ) eaddr = p;
 			}
 			num_pending = 0;
 		}
@@ -107,14 +108,13 @@ int parse_script(const char script[], scmd_t **cmd_list){
 			if( strcmp(re_buff, "") == 0 ){
 				return ENOREGEX;
 			}
-			if( baddr == NULL ){
-				baddr = malloc(sizeof(saddr_t));
-				baddr->type = REGEX_ADDR;
-				strncpy(baddr->regex, re_buff, BUFF_SIZE);
-			}else if( eaddr == NULL ){
-				eaddr = malloc(sizeof(saddr_t));
-				eaddr->type = REGEX_ADDR;
-				strncpy(eaddr->regex, re_buff, BUFF_SIZE);
+			saddr_t *p;
+			if( baddr == NULL || eaddr == NULL ){
+				p = malloc(sizeof(saddr_t));
+				p->type = REGEX_ADDR;
+				strncpy(p->regex, re_buff, BUFF_SIZE);
+				if( baddr == NULL )      baddr = p;
+				else if( eaddr == NULL ) eaddr = p;
 			}
 			re_pending = 0;
 		}
@@ -170,41 +170,176 @@ int parse_script(const char script[], scmd_t **cmd_list){
 	}
 	/* DEBUG */
 	fmtprint(STDOUT, "[INFO]\n");
-	fmtprint(STDOUT, "[script]: '%s'\n", script);
+	fmtprint(STDOUT, "script:\t'%s'\n", script);
 	scmd_t *iter = *cmd_list;
 	for(; iter; iter = iter->next){
-		fmtprint(STDOUT, "[command]: %d\n", iter->code);
+		fmtprint(STDOUT, "\ncommand:\t%d\n", iter->code);
 		if( iter->baddr != NULL ){
-			fmtprint(STDOUT, "[baddr->line]: %d\n", iter->baddr->line);
-			fmtprint(STDOUT, "[baddr->regex]: %s\n", iter->baddr->regex);
+			fmtprint(STDOUT, "baddr->line:\t%d\n", iter->baddr->line);
+			fmtprint(STDOUT, "baddr->regex:\t%s\n", iter->baddr->regex);
 		}
 
 		if( iter->eaddr != NULL ){
-			fmtprint(STDOUT, "[eaddr->line]: %d\n", iter->eaddr->line);
-			fmtprint(STDOUT, "[eaddr->regex]: %s\n", iter->eaddr->regex);
+			fmtprint(STDOUT, "eaddr->line:\t%d\n", iter->eaddr->line);
+			fmtprint(STDOUT, "eaddr->regex:\t%s\n", iter->eaddr->regex);
 		}
 
 		if( iter->code == SUBST || iter->code == YANK ){
-			fmtprint(STDOUT, "[regex]: %s\n", iter->regex);
-			fmtprint(STDOUT, "[replace]: %s\n", iter->text);
+			fmtprint(STDOUT, "cmd->regex:\t%s\n", iter->regex);
+			fmtprint(STDOUT, "cmd->replace:\t%s\n", iter->text);
 		}
 	}
 	return SUCCESS;
 }
 
-int run_script(const char script[], int fd, int flags){
-	/*while( (nbytes = read(fd, buff, BUFF_SIZE)) > 0 ){*/
-		/*iter = buff;*/
-		/*while( *iter && *iter != '\n' ){*/
-			/*write(STDOUT, iter, 1);*/
-			/*iter++;*/
-		/*}*/
-	/*}*/
+int run_line(scmd_t *cmd_list, sspace_t *pspace, sspace_t *hspace,
+												 const int line){
+	scmd_t *cmd = cmd_list;
+	for(; cmd; cmd = cmd->next){
+		if( cmd->baddr != NULL){
+			if( cmd->baddr->type == LINE_ADDR ){
+				if( cmd->baddr->line > line ) continue;
+			}
+		}
+		if( cmd->eaddr != NULL){
+			if( cmd->eaddr->type == LINE_ADDR ){
+				if( cmd->eaddr->line < line ) continue;
+			}
+		}
+		switch(cmd->code){
+			case QUIT:
+				return RQUIT;
+			break;
+			default:
+			break;
+		}
+	}
+	return RNONE;
+}
 
+static int check_result(enum cmd_results result){
+	switch (result){
+		case RQUIT:
+			return SUCCESS;
+		break;
+		case RNONE:
+		break;
+	}
+	return -1;
+}
+
+
+int run_script(const char script[], int fd, int flags){
 	scmd_t *cmd_list = NULL;
 	int result = parse_script(script, &cmd_list);
 	if( result > 0 ){
 		return result;
 	}
+	int nbytes = 0, cnt = 0, line_num = 0, last_check = -1, lread = 0;
+	int has_line = 0;
+	char buff[BUFF_SIZE] = { '\0' }, rbuff[BUFF_SIZE] = { '\0' }, *it = NULL;
+	sspace_t pspace = {NULL, 0, 0}, hspace = pspace;
+	while( 1 ){
+		int curpos = lseek(fd, 0, SEEK_CUR);
+		if( curpos < 0 && errno != EINVAL ){
+			return -errno;
+		}
+
+		int offset = lseek(fd, curpos, SEEK_DATA);
+		if( offset < 0 && errno != EINVAL ){
+			if( errno == ENXIO ){
+				if( cnt <= 0 ) break;
+			}else{
+				return -errno;
+			}
+		}
+		nbytes = read(fd, buff, BUFF_SIZE);
+		if( nbytes < 0 ){
+			return -errno;
+		}
+
+		if( nbytes == 0 && cnt <= 0 ) break;
+
+		if( has_line ){
+			fmtprint(STDOUT, "%s\n", pspace.text);
+			free(pspace.text);
+			pspace.len = 0;
+			pspace.text = NULL;
+			has_line = 0;
+		}
+		if( last_check == SUCCESS ){
+			return SUCCESS;
+		}
+
+		if( pspace.text == NULL ){
+			pspace.text = malloc(nbytes);
+			pspace.len  = nbytes > 0 ? nbytes : cnt;
+		}else{
+			pspace.len += nbytes > 0 ? nbytes : cnt;
+			char *tmp = realloc(pspace.text, pspace.len);
+			if( tmp == NULL ){
+				return -errno;
+			}
+			pspace.text = tmp;
+		}
+		char *tok = buff;
+		char *rtok = &rbuff[lread];
+		if ( it == NULL ){
+			it = pspace.text;
+		}
+		if( cnt > 0 ){
+			while( *rtok != '\n' && *rtok ){
+				*it = *rtok;
+				it++;
+				rtok++;
+				cnt--;
+				lread++;
+			}
+		}else cnt = nbytes;
+
+		int nread = 0;
+		while( *tok != '\n' && *tok && nbytes > 0 ){
+			*it = *tok;
+			it++;
+			tok++;
+			cnt--;
+			nread++;
+		}
+		if( *tok == '\n' || *rtok == '\n' ){
+			has_line = 1;
+			*it = '\0';
+			line_num++;
+			tok++;
+			rtok++;
+			cnt--;
+			lread++;
+		}
+
+		if( has_line ){
+			/* Start script */
+			int result = run_line(cmd_list, &pspace, &hspace, line_num);
+			fmtprint(STDOUT, "%s\n", pspace.text);
+			last_check = check_result(result);
+			it = NULL;
+			if( cnt > 0 && rbuff[0] == '\0' ){
+				strncpy(rbuff, &buff[nread], cnt+1);
+				/*free(pspace.text);*/
+				/*pspace.text = malloc(cnt);*/
+				/*pspace.len = cnt;*/
+				/*strncpy(pspace.text, tok, cnt);*/
+				/**(pspace.text+cnt) = '\0';*/
+			}
+		}
+	}
+	/*if( pspace.len > 0 ){*/
+		/*char *str = strtok(pspace.text, "\n");*/
+		/*while(str){*/
+			/*int result = run_line(cmd_list, &pspace, &hspace, line_num);*/
+			/*last_check = check_result(result);*/
+			/*str = strtok(NULL, "\n");*/
+			/*line_num++;*/
+		/*}*/
+		/*free(pspace.text);*/
+	/*}*/
 	return SUCCESS;
 }
