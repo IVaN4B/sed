@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <stdlib.h>
 #include <getopt.h>
 #include <unistd.h>
 #include <stropts.h>
@@ -83,7 +84,8 @@ int main(int argc, char *argv[]){
 	if( n > 0 || findex == argc ){
 		int result = run_script(script, STDIN, 0);
 		if( result != 0 ){
-			fmtprint(STDERR, err_msg(result));
+			if( result > 0 ) fmtprint(STDERR, "%s\n", err_msg(result));
+			if( result < 0 ) fmtprint(STDERR, "%s\n", strerror(abs(result)));
 			return 1;
 		}
 		return 0;
@@ -96,8 +98,11 @@ int main(int argc, char *argv[]){
 			continue;
 		}
 		int result = run_script(script, fd, 0);
-		fmtprint(STDERR, err_msg(result));
-		return 1;
+		if( result != 0 ){
+			if( result > 0 ) fmtprint(STDERR, "%s\n", err_msg(result));
+			if( result < 0 ) fmtprint(STDERR, "%s\n", strerror(abs(result)));
+			return 1;
+		}
 	}
 	return 0;
 }
