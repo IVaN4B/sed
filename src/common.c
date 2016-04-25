@@ -2,7 +2,10 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdarg.h>
-#define NUM_BUFF 32
+#include <errno.h>
+#include <assert.h>
+#include "cmd.h"
+#include "common.h"
 
 static char *strrev(char *str) {
 	char *p1, *p2;
@@ -71,5 +74,71 @@ void fmtprint(int fd, const char *str, ...){
 		}
 	}
 	va_end(argptr);
+}
+
+int s_getline(sspace_t **spaceptr, int fd){
+	assert(spaceptr != NULL);
+	char buff[BUFF_SIZE], rbuff[BUFF_SIZE];
+	char *it = NULL, *tmp = NULL;
+	int has_line = 0;
+	int cnt = 0, nbytes = 0;
+	if( *spaceptr == NULL ){
+		*spaceptr = malloc(sizeof(sspace_t));
+		(*spaceptr)->text = NULL;
+		(*spaceptr)->len = 0;
+		(*spaceptr)->buff = NULL;
+		(*spaceptr)->buff_len = 0;
+		(*spaceptr)->is_deleted = 0;
+	}
+	sspace_t *space = *spaceptr;
+	while( !has_line ){
+		int curpos = lseek(fd, 0, SEEK_CUR);
+		if( curpos < 0 && errno != EINVAL ){
+			return -errno;
+		}
+
+		int offset = lseek(fd, curpos, SEEK_DATA);
+		if( offset < 0 && errno != EINVAL ){
+			if( errno == ENXIO ){
+				break;
+			}else{
+				return -errno;
+			}
+		}
+		nbytes = read(fd, buff, BUFF_SIZE);
+		if( nbytes < 0 ){
+			return -errno;
+		}
+
+		if( nbytes == 0 ) break;
+
+		space->len += nbytes;
+		tmp = realloc(space->text, space->len);
+		if( tmp == NULL ){
+			return -errno;
+		}
+		space->text = tmp;
+		tmp = NULL;
+
+		if( it == NULL ){
+			it = space->text;
+		}
+
+		int cnt = nbytes;
+		char *tok = buff;
+		while( *tok != NEWLINE && *tok ){
+			*it = *tok;
+			it++;
+			tok++;
+			cnt--;
+		}
+
+		if( *tok == NEWLINE ){
+			has_line = 1;
+		}
+	}
+
+
+	return ENXIO;
 }
 

@@ -228,7 +228,6 @@ static int check_result(enum cmd_results result){
 	return -1;
 }
 
-
 int run_script(const char script[], int fd, int flags){
 	scmd_t *cmd_list = NULL;
 	int result = parse_script(script, &cmd_list);
@@ -238,108 +237,13 @@ int run_script(const char script[], int fd, int flags){
 	int nbytes = 0, cnt = 0, line_num = 0, last_check = -1, lread = 0;
 	int has_line = 0;
 	char buff[BUFF_SIZE] = { '\0' }, rbuff[BUFF_SIZE] = { '\0' }, *it = NULL;
-	sspace_t pspace = {NULL, 0, 0}, hspace = pspace;
-	while( 1 ){
-		int curpos = lseek(fd, 0, SEEK_CUR);
-		if( curpos < 0 && errno != EINVAL ){
-			return -errno;
-		}
-
-		int offset = lseek(fd, curpos, SEEK_DATA);
-		if( offset < 0 && errno != EINVAL ){
-			if( errno == ENXIO ){
-				if( cnt <= 0 ) break;
-			}else{
-				return -errno;
-			}
-		}
-		nbytes = read(fd, buff, BUFF_SIZE);
-		if( nbytes < 0 ){
-			return -errno;
-		}
-
-		if( nbytes == 0 && cnt <= 0 ) break;
-
-		if( has_line ){
-			fmtprint(STDOUT, "%s\n", pspace.text);
-			free(pspace.text);
-			pspace.len = 0;
-			pspace.text = NULL;
-			has_line = 0;
-		}
-		if( last_check == SUCCESS ){
-			return SUCCESS;
-		}
-
-		if( pspace.text == NULL ){
-			pspace.text = malloc(nbytes);
-			pspace.len  = nbytes > 0 ? nbytes : cnt;
-		}else{
-			pspace.len += nbytes > 0 ? nbytes : cnt;
-			char *tmp = realloc(pspace.text, pspace.len);
-			if( tmp == NULL ){
-				return -errno;
-			}
-			pspace.text = tmp;
-		}
-		char *tok = buff;
-		char *rtok = &rbuff[lread];
-		if ( it == NULL ){
-			it = pspace.text;
-		}
-		if( cnt > 0 ){
-			while( *rtok != '\n' && *rtok ){
-				*it = *rtok;
-				it++;
-				rtok++;
-				cnt--;
-				lread++;
-			}
-		}else cnt = nbytes;
-
-		int nread = 0;
-		while( *tok != '\n' && *tok && nbytes > 0 ){
-			*it = *tok;
-			it++;
-			tok++;
-			cnt--;
-			nread++;
-		}
-		if( *tok == '\n' || *rtok == '\n' ){
-			has_line = 1;
-			*it = '\0';
-			line_num++;
-			tok++;
-			rtok++;
-			cnt--;
-			lread++;
-		}
-
-		if( has_line ){
-			/* Start script */
-			int result = run_line(cmd_list, &pspace, &hspace, line_num);
-			fmtprint(STDOUT, "%s\n", pspace.text);
-			last_check = check_result(result);
-			it = NULL;
-			if( cnt > 0 && rbuff[0] == '\0' ){
-				strncpy(rbuff, &buff[nread], cnt+1);
-				/*free(pspace.text);*/
-				/*pspace.text = malloc(cnt);*/
-				/*pspace.len = cnt;*/
-				/*strncpy(pspace.text, tok, cnt);*/
-				/**(pspace.text+cnt) = '\0';*/
-			}
-		}
+	sspace_t *pspace = NULL, hspace;
+	while( result = s_getline(&pspace, fd) == 0 ){
+		fmtprint(STDOUT, "%s\n", pspace->text);
+		free(pspace->text);
 	}
-	/*if( pspace.len > 0 ){*/
-		/*char *str = strtok(pspace.text, "\n");*/
-		/*while(str){*/
-			/*int result = run_line(cmd_list, &pspace, &hspace, line_num);*/
-			/*last_check = check_result(result);*/
-			/*str = strtok(NULL, "\n");*/
-			/*line_num++;*/
-		/*}*/
-		/*free(pspace.text);*/
-	/*}*/
+	if ( result != ENXIO ){
+		return result;
+	}
 	return SUCCESS;
 }

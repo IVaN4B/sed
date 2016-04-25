@@ -49,6 +49,8 @@ enum saddr_type{
 typedef struct sspace_t{
 	char *text;
 	int len;
+	char *buff;
+	int buff_len;
 	int is_deleted;
 } sspace_t;
 
