@@ -8,6 +8,15 @@
 #include "cmd.h"
 #include "common.h"
 
+static const char *err_msgs[ERR_MAX] = {
+	"Success\n",
+	"Unable to read given file\n",
+	"Invalid token\n",
+	"Illegal character\n",
+	"Regex must not be empty\n",
+	"Wrong mark given for substr or yank command\n",
+};
+
 const char *err_msg(int err_code){
 	if( err_code < 0 || err_code > ERR_MAX ) return err_msgs[0];
 	return err_msgs[err_code];
@@ -194,38 +203,44 @@ int parse_script(const char script[], scmd_t **cmd_list){
 
 int run_line(scmd_t *cmd_list, sspace_t *pspace, sspace_t *hspace,
 												 const int line){
+	pspace->space = pspace->text;
+	pspace->text = NULL;
 	scmd_t *cmd = cmd_list;
+	pspace->is_deleted = 0;
 	for(; cmd; cmd = cmd->next){
-		if( cmd->baddr != NULL){
-			if( cmd->baddr->type == LINE_ADDR ){
-				if( cmd->baddr->line > line ) continue;
-			}
+		int bline = 0, eline = 0;
+		if( cmd->baddr != NULL && cmd->baddr->type == LINE_ADDR ){
+			bline = cmd->baddr->line;
 		}
-		if( cmd->eaddr != NULL){
-			if( cmd->eaddr->type == LINE_ADDR ){
-				if( cmd->eaddr->line < line ) continue;
-			}
+
+		if( cmd->eaddr != NULL && cmd->eaddr->type == LINE_ADDR ){
+			eline = cmd->eaddr->line;
 		}
+		if( bline > 0 && bline > line ) continue;
+		if( eline > 0 && eline < line ) continue;
+		if( eline == 0 && bline > 0 && bline != line ) continue;
 		switch(cmd->code){
 			case QUIT:
 				return RQUIT;
+			break;
+			case DELETE:
+				pspace->is_deleted = 1;
+			break;
+
+			case PRINT:
+				fmtprint(STDOUT, "%s\n", pspace->space);
 			break;
 			default:
 			break;
 		}
 	}
-	return RNONE;
+	return RCONT;
 }
 
-static int check_result(enum cmd_results result){
-	switch (result){
-		case RQUIT:
-			return SUCCESS;
-		break;
-		case RNONE:
-		break;
-	}
-	return -1;
+static void reset_space(sspace_t *pspace){
+	free(pspace->space);
+	pspace->is_deleted = 0;
+	pspace->len = 0;
 }
 
 int run_script(const char script[], int fd, int flags){
@@ -234,15 +249,27 @@ int run_script(const char script[], int fd, int flags){
 	if( result > 0 ){
 		return result;
 	}
-	int nbytes = 0, cnt = 0, line_num = 0, last_check = -1, lread = 0;
-	int has_line = 0;
-	char buff[BUFF_SIZE] = { '\0' }, rbuff[BUFF_SIZE] = { '\0' }, *it = NULL;
 	sspace_t *pspace = NULL, hspace;
-	while( result = s_getline(&pspace, fd) == 0 ){
-		fmtprint(STDOUT, "%s\n", pspace->text);
-		free(pspace->text);
+	enum cmd_result code = RNONE;
+	int line = 1;
+	while( (result = s_getline(&pspace, fd) > 0) ){
+		if( code != RNONE ){
+			if( !pspace->is_deleted ){
+				fmtprint(STDOUT, "%s\n", pspace->space);
+			}
+			reset_space(pspace);
+			switch(code){
+				case RQUIT:
+					return SUCCESS;
+				default:
+				break;
+			}
+		}
+		code = run_line(cmd_list, pspace, &hspace, line);
+		line++;
 	}
-	if ( result != ENXIO ){
+	fmtprint(STDOUT, "%s\n", pspace->space);
+	if ( result < 0 ){
 		return result;
 	}
 	return SUCCESS;

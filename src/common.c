@@ -1,3 +1,4 @@
+#define _GNU_SOURCE
 #include <unistd.h>
 #include <stdlib.h>
 #include <string.h>
@@ -78,20 +79,40 @@ void fmtprint(int fd, const char *str, ...){
 
 int s_getline(sspace_t **spaceptr, int fd){
 	assert(spaceptr != NULL);
-	char buff[BUFF_SIZE], rbuff[BUFF_SIZE];
+	char buff[BUFF_SIZE+1];
 	char *it = NULL, *tmp = NULL;
 	int has_line = 0;
-	int cnt = 0, nbytes = 0;
+	int cnt = 0, nbytes = 0, nread = 0, rread = 0, result = 0;
 	if( *spaceptr == NULL ){
 		*spaceptr = malloc(sizeof(sspace_t));
 		(*spaceptr)->text = NULL;
-		(*spaceptr)->len = 0;
+		(*spaceptr)->len = BUFF_SIZE+1;
 		(*spaceptr)->buff = NULL;
 		(*spaceptr)->buff_len = 0;
+		(*spaceptr)->offset = 0;
 		(*spaceptr)->is_deleted = 0;
 	}
 	sspace_t *space = *spaceptr;
+	char *rtok = NULL;
+	buff[BUFF_SIZE] = '\0';
+	if( space->buff_len > 0 ){
+		space->text = malloc(space->buff_len+1);
+		it = space->text;
+		rtok = &space->buff[space->offset];
+		cnt = space->buff_len - space->offset;
+		while( *rtok ){
+			rread++;
+			cnt--;
+			if( has_line ) break;
+			*it++ = *rtok++;
+			if( *rtok == NEWLINE ){
+				has_line = 1;
+				*it = '\0';
+			}
+		}
+	}
 	while( !has_line ){
+		nread = 0;
 		int curpos = lseek(fd, 0, SEEK_CUR);
 		if( curpos < 0 && errno != EINVAL ){
 			return -errno;
@@ -100,6 +121,7 @@ int s_getline(sspace_t **spaceptr, int fd){
 		int offset = lseek(fd, curpos, SEEK_DATA);
 		if( offset < 0 && errno != EINVAL ){
 			if( errno == ENXIO ){
+				result = 0;
 				break;
 			}else{
 				return -errno;
@@ -110,8 +132,10 @@ int s_getline(sspace_t **spaceptr, int fd){
 			return -errno;
 		}
 
-		if( nbytes == 0 ) break;
-
+		if( nbytes == 0 ){
+			result = 0;
+			break;
+		}
 		space->len += nbytes;
 		tmp = realloc(space->text, space->len);
 		if( tmp == NULL ){
@@ -124,21 +148,33 @@ int s_getline(sspace_t **spaceptr, int fd){
 			it = space->text;
 		}
 
-		int cnt = nbytes;
 		char *tok = buff;
-		while( *tok != NEWLINE && *tok ){
-			*it = *tok;
-			it++;
-			tok++;
+		cnt = nbytes;
+		while( *tok ){
 			cnt--;
-		}
-
-		if( *tok == NEWLINE ){
-			has_line = 1;
+			nread++;
+			if( has_line ) break;
+			*it++ = *tok++;
+			if( *tok == NEWLINE ){
+				has_line = 1;
+				*it = '\0';
+			}
 		}
 	}
 
-
-	return ENXIO;
+	if( cnt > 0 ){
+		result = 1;
+		if( space->buff == NULL ){
+			space->buff = malloc(cnt+1);
+			space->buff_len = cnt;
+			strncpy(space->buff, &buff[nread], cnt);
+		}
+		space->offset = rread;
+	}else if( space->buff != NULL ){
+		space->buff_len = 0;
+		space->offset = 0;
+		free(space->buff);
+	}
+	if( has_line ) result = 1;
+	return result;
 }
-

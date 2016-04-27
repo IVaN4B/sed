@@ -11,6 +11,7 @@
 #define SPACE ' '
 #define COMMA ','
 #define COMMENT '#'
+#define zalloc(N) calloc(1, N)
 enum serrors{
 	SUCCESS,
 	EREADFILE,
@@ -21,9 +22,10 @@ enum serrors{
 	ERR_MAX
 };
 
-enum cmd_results{
-	RQUIT,
+enum cmd_result{
 	RNONE,
+	RQUIT,
+	RCONT,
 };
 
 enum scmd_type{
@@ -51,6 +53,9 @@ typedef struct sspace_t{
 	int len;
 	char *buff;
 	int buff_len;
+	int offset;
+	char *space;
+	int space_len;
 	int is_deleted;
 } sspace_t;
 
@@ -70,15 +75,6 @@ typedef struct scmd_t{
 } scmd_t;
 
 static const char tokens[] = "s{}bdypiaq";
-
-static const char *err_msgs[ERR_MAX] = {
-	"Success\n",
-	"Unable to read given file\n",
-	"Invalid token\n",
-	"Illegal character\n",
-	"Regex must not be empty\n",
-	"Wrong mark given for substr or yank command\n",
-};
 
 int parse_script(const char script[], scmd_t **cmd_list);
 int run_script(const char script[], int fd, int flags);
