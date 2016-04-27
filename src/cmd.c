@@ -268,7 +268,9 @@ int run_script(const char script[], int fd, int flags){
 		code = run_line(cmd_list, pspace, &hspace, line);
 		line++;
 	}
-	fmtprint(STDOUT, "%s\n", pspace->space);
+	if( !pspace->is_deleted ){
+		fmtprint(STDOUT, "%s\n", pspace->space);
+	}
 	if ( result < 0 ){
 		return result;
 	}
