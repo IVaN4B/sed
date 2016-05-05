@@ -5,6 +5,7 @@
 #include <stdarg.h>
 #include <errno.h>
 #include <assert.h>
+#include <regex.h>
 #include "cmd.h"
 #include "common.h"
 
@@ -79,52 +80,70 @@ void fmtprint(int fd, const char *str, ...){
 
 int s_getline(sspace_t **spaceptr, int fd){
 	assert(spaceptr != NULL);
-	char buff[BUFF_SIZE+1];
+	char buff[BUFF_SIZE];
 	char *it = NULL, *tmp = NULL;
 	int has_line = 0;
-	int cnt = 0, nbytes = 0, nread = 0, rread = 0, result = 0;
+	int cnt = 0, nbytes = 0, nread = 0, result = 0;
 	if( *spaceptr == NULL ){
 		*spaceptr = malloc(sizeof(sspace_t));
-		(*spaceptr)->text = NULL;
-		(*spaceptr)->len = BUFF_SIZE+1;
+		if( *spaceptr == NULL ){
+			return -errno;
+		}
 		(*spaceptr)->buff = NULL;
 		(*spaceptr)->buff_len = 0;
 		(*spaceptr)->offset = 0;
 		(*spaceptr)->is_deleted = 0;
 	}
 	sspace_t *space = *spaceptr;
+	if( space->len == 0 || space->text == NULL ){
+		space->text = malloc(CHUNK);
+		space->len = CHUNK;
+	}
 	char *rtok = NULL;
-	buff[BUFF_SIZE] = '\0';
+	int avail = space->len;
+	int total = 0;
 	if( space->buff_len > 0 ){
 		space->text = malloc(space->buff_len+1);
+		if( space->text == NULL ){
+			return -errno;
+		}
 		it = space->text;
 		rtok = &space->buff[space->offset];
 		cnt = space->buff_len - space->offset;
-		while( *rtok ){
-			rread++;
-			cnt--;
-			if( has_line ) break;
-			*it++ = *rtok++;
+		int len = cnt;
+		for(nread = 0; nread < len; nread++, total++, cnt--){
+			*it++ = *rtok;
 			if( *rtok == NEWLINE ){
 				has_line = 1;
 				*it = '\0';
+				break;
 			}
+			rtok++;
 		}
 	}
+	if( cnt <= 0 ){
+		free(space->buff);
+		space->buff = NULL;
+		space->buff_len = 0;
+		space->offset = 0;
+	}
+	int can_seek = 0;
 	while( !has_line ){
 		nread = 0;
 		int curpos = lseek(fd, 0, SEEK_CUR);
-		if( curpos < 0 && errno != EINVAL ){
-			return -errno;
+		if( curpos < 0 ){
+			can_seek = 0;
 		}
 
-		int offset = lseek(fd, curpos, SEEK_DATA);
-		if( offset < 0 && errno != EINVAL ){
-			if( errno == ENXIO ){
-				result = 0;
-				break;
-			}else{
-				return -errno;
+		if( can_seek ){
+			int offset = lseek(fd, curpos, SEEK_DATA);
+			if( offset < 0 && errno != EINVAL ){
+				if( errno == ENXIO ){
+					result = 0;
+					break;
+				}else{
+					return -errno;
+				}
 			}
 		}
 		nbytes = read(fd, buff, BUFF_SIZE);
@@ -136,44 +155,61 @@ int s_getline(sspace_t **spaceptr, int fd){
 			result = 0;
 			break;
 		}
-		space->len += nbytes;
-		tmp = realloc(space->text, space->len);
-		if( tmp == NULL ){
-			return -errno;
-		}
-		space->text = tmp;
-		tmp = NULL;
 
 		if( it == NULL ){
 			it = space->text;
 		}
 
 		char *tok = buff;
-		cnt = nbytes;
-		while( *tok ){
-			cnt--;
-			nread++;
-			if( has_line ) break;
-			*it++ = *tok++;
+		if( cnt == 0 ) cnt = nbytes;
+		for(nread = 0; nread < nbytes; nread++, total++, cnt--){
+			if( avail < 2 ){
+				if( space->len > CHUNK ){
+					avail = space->len;
+					space->len *= 2;
+				}else{
+					space->len += CHUNK;
+					avail = CHUNK;
+				}
+				tmp = realloc(space->text, space->len);
+				if( tmp == NULL ){
+					return -errno;
+				}
+				space->text = tmp;
+				it = &space->text[total];
+				tmp = NULL;
+			}
+			*it++ = *tok;
+			avail--;
 			if( *tok == NEWLINE ){
 				has_line = 1;
 				*it = '\0';
+				break;
 			}
+			tok++;
 		}
 	}
 
+	cnt--;
+	nread++;
 	if( cnt > 0 ){
 		result = 1;
 		if( space->buff == NULL ){
 			space->buff = malloc(cnt+1);
+			space->offset = 0;
+			if( space->buff == NULL ){
+				return -errno;
+			}
 			space->buff_len = cnt;
 			strncpy(space->buff, &buff[nread], cnt);
+			nread = 0;
 		}
-		space->offset = rread;
+		space->offset += nread;
 	}else if( space->buff != NULL ){
 		space->buff_len = 0;
 		space->offset = 0;
 		free(space->buff);
+		space->buff = NULL;
 	}
 	if( has_line ) result = 1;
 	return result;

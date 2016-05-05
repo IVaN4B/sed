@@ -9,6 +9,7 @@
 #include <fcntl.h>
 #include <errno.h>
 #include <string.h>
+#include <regex.h>
 
 #include "cmd.h"
 #include "common.h"
@@ -25,12 +26,14 @@ int main(int argc, char *argv[]){
 	const char *verstr = "sed v0.1";
 	const char *opts = "nf:hV";
 	const char *script = "";
+	unsigned int flags = 0U;
 	int nflag = 0, hflag = 0, vflag = 0, fflag = 0;
 	int c;
 	while( (c = getopt(argc, argv, opts)) != -1 ){
 		switch(c){
 			case 'n':
 				nflag = 1;
+				flags |= NFLAG;
 			break;
 
 			case 'f':
@@ -81,8 +84,8 @@ int main(int argc, char *argv[]){
 	/* Check if stdin has data */
 	int n = 0;
 	(void)ioctl(STDIN, I_NREAD, &n);
-	if( n > 0 || findex == argc ){
-		int result = run_script(script, STDIN, 0);
+	if( n > 0 || findex == argc || !isatty(STDIN) ){
+		int result = run_script(script, STDIN, flags);
 		if( result != 0 ){
 			if( result > 0 ) fmtprint(STDERR, "%s\n", err_msg(result));
 			if( result < 0 ) fmtprint(STDERR, "%s\n", strerror(abs(result)));
@@ -97,7 +100,7 @@ int main(int argc, char *argv[]){
 			fmtprint(STDERR, e_open, argv[0], argv[findex], strerror(errno));
 			continue;
 		}
-		int result = run_script(script, fd, 0);
+		int result = run_script(script, fd, flags);
 		if( result != 0 ){
 			if( result > 0 ) fmtprint(STDERR, "%s\n", err_msg(result));
 			if( result < 0 ) fmtprint(STDERR, "%s\n", strerror(abs(result)));
