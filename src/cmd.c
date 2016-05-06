@@ -6,6 +6,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <regex.h>
+#include <assert.h>
 
 #include "cmd.h"
 #include "common.h"
@@ -20,6 +21,23 @@ static const char *err_msgs[ERR_MAX] = {
 	"Unable to compile regex",
 	"Malloc failed",
 };
+
+static char *sub_buff = NULL;
+static size_t sub_buff_len = MIN_CHUNK;
+static size_t sub_strlen = 0;
+
+static char *outbuff = NULL;
+static size_t outbufflen = MIN_CHUNK;
+
+static int append_outbuff(char *str){
+	int len = strlen(str);
+	if( outbufflen < len*2 ){
+		outbufflen = len*2;
+		TRY_REALLOC(outbuff, outbufflen);
+	}
+	strcat(outbuff, str);
+	return 0;
+}
 
 const char *err_msg(int err_code){
 	if( err_code < 0 || err_code > ERR_MAX ) return err_msgs[0];
@@ -246,6 +264,7 @@ int parse_script(const char script[], scmd_t **cmd_list, unsigned int eflags){
 		}
 	}
 	/* DEBUG */
+#ifdef DEBUG
 	fmtprint(STDOUT, "[INFO]\n");
 	fmtprint(STDOUT, "script:\t'%s'\n", script);
 	scmd_t *iter = *cmd_list;
@@ -273,10 +292,12 @@ int parse_script(const char script[], scmd_t **cmd_list, unsigned int eflags){
 			fmtprintout("Group ended\n");
 		}
 	}
+#endif
 	return SUCCESS;
 }
 
 static int match(const char *string, regex_t *pattern){
+	assert(pattern != NULL);
 	int status = regexec(pattern, string, (size_t) 0, NULL, 0);
     if( status != 0 ) {
 		/* TODO: ЕГГОГ */
@@ -285,46 +306,131 @@ static int match(const char *string, regex_t *pattern){
 	return 1;
 }
 
+static int substring(char *strp, char *repl, int repl_len, int mstart,
+														   int mend,
+														   int n){
+	int count = sub_strlen;
+	for(; strp[n]; n++){
+		if( sub_buff_len < count ){
+			sub_buff_len *= 2;
+			TRY_REALLOC(sub_buff, sub_buff_len);
+		}
+		if( n == mstart ){
+			strncpy(&sub_buff[count], repl, repl_len);
+			count += repl_len;
+			continue;
+		}
+		if( n > mstart && n < mend ) continue;
+		if( n == mend ) break;
+		sub_buff[count++] = strp[n];
+	}
+	sub_strlen = count;
+	return n;
+}
+
 static int replace(sspace_t *space, char *replacement, regex_t *pattern,
 													unsigned int flags){
-	int a = 0, cnt = 0;
+	assert(pattern != NULL);
+	assert(space != NULL);
+	int a = 0, is_global = flags & SFLAG_G;
 	int offset = 0;
-	regmatch_t pm;
-	a = regexec(pattern, &space->space[0], 1, &pm, REG_EXTENDED);
+	int repl_len = strlen(replacement);
+	char *repl = NULL;
 
-	while( a == 0 ){
-		printf("\nmatch at %.*s %d\n", (pm.rm_eo-pm.rm_so),
-						&space->space[offset+pm.rm_so], offset+pm.rm_so);
-		int bmatch = offset+pm.rm_so;
-		int ematch = offset+pm.rm_eo;
-		int len = pm.rm_eo-pm.rm_so;
-		int rlen = strlen(replacement);
-		int diff = rlen - len;
-		/* Check avail */
-		space->len += BUFF_SIZE;
-		char *tmp = realloc(space->space, space->len);
-		if( tmp == NULL ){
-			return -errno;
-		}
-		space->text = tmp;
-		printf("%s: %s\n", space->space+bmatch, replacement);
-		memmove(space->space+ematch+diff, space->space+ematch,
-						space->len-ematch);
-		strncpy(space->space+bmatch, replacement, rlen);
-		/* memmove */
-		offset += pm.rm_eo+diff;
-		cnt++;
-		a = regexec(pattern, &space->space[0] + offset, 1, &pm, 0);
+	int space_len = strlen(space->space);
+	int sub_len = space_len;
+	int ngroups = pattern->re_nsub+1;
+	regmatch_t *groups = malloc(ngroups*sizeof(regmatch_t));
+
+	if( sub_buff_len < space->len ){
+		sub_buff_len = space->len;
+		TRY_REALLOC(sub_buff, sub_buff_len);
 	}
+	if( repl_len > 0 ){
+		TRY_REALLOC(repl, repl_len);
+		strcpy(repl, replacement);
+	}
+
+	a = regexec(pattern, &space->space[0], ngroups, groups, REG_EXTENDED);
+
+	int shift = 0;
+	while( a == 0 ){
+		size_t nmatched = 0;
+		if( repl_len > 0 ){
+			for(nmatched = 0; nmatched < ngroups; nmatched++){
+				regmatch_t pm = groups[nmatched];
+				if( pm.rm_so == (size_t)-1) break;
+
+				int bmatch = offset+pm.rm_so;
+				int ematch = offset+pm.rm_eo;
+				int len = pm.rm_eo-pm.rm_so;
+				/*int diff = rlen - len;*/
+				char *tok = repl;
+				while(*tok){
+					switch(*tok++){
+						case '\\':
+							if( IS_NUM(*tok) ){
+								repl_len += len-2;
+								char *pos = tok-1;
+								TRY_REALLOC(repl, repl_len);
+								memmove(pos+len, pos, len);
+								strncpy(pos, space->space+bmatch, len+2);
+								printf("\nREPL: %s\n", repl);
+								/* Replace group with nth match */
+							}
+						break;
+					}
+				}
+			}
+		}
+		int prev_off = offset;
+		for(nmatched = 0; nmatched < ngroups; nmatched++){
+			regmatch_t pm = groups[nmatched];
+			if( pm.rm_so == (size_t)-1 ) break;
+			printf("\nmatch at %.*s %d\n", (pm.rm_eo-pm.rm_so),
+							&space->space[offset+pm.rm_so], offset+pm.rm_so);
+			/* Do replace */
+			int bmatch = offset+pm.rm_so;
+			int ematch = offset+pm.rm_eo;
+
+			shift = substring(space->space, repl, repl_len, bmatch,
+															  ematch,
+															  shift);
+			if( shift < 0 ){
+				return shift;
+			}
+			offset += pm.rm_eo;
+
+		}
+		if( offset >= space_len || prev_off == offset || !is_global ) break;
+		a = regexec(pattern, &space->space[0] + offset, ngroups, groups,
+																 REG_EXTENDED);
+	}
+	/* If chars left */
+	if( space->space[shift] ){
+		shift = substring(space->space, repl, repl_len, -1,
+														-1,
+														shift);
+	}
+	sub_buff[sub_strlen] = '\0';
+	if( space->len < sub_buff_len ){
+		space->len = sub_buff_len;
+		TRY_REALLOC(space->space, space->len);
+	}
+	if( sub_buff[0] != '\0'){
+		strcpy(space->space, sub_buff);
+	}
+	sub_buff[0] = '\0';
+	sub_strlen = 0;
 	return 1;
 }
 
 int run_line(scmd_t *cmd_list, sspace_t *pspace, sspace_t *hspace,
 												 const int line){
-	pspace->space = pspace->text;
-	pspace->text = NULL;
+	TRY_REALLOC(pspace->space, pspace->len);
+	strcpy(pspace->space, pspace->text);
+
 	scmd_t *cmd = cmd_list;
-	pspace->is_deleted = 0;
 	scmd_t *nextp = cmd->next;
 	for(; cmd; cmd = nextp){
 		nextp = cmd->next;
@@ -361,12 +467,16 @@ int run_line(scmd_t *cmd_list, sspace_t *pspace, sspace_t *hspace,
 				pspace->is_deleted = 1;
 			break;
 
-			case PRINT:
-				return RPRINT;
-			break;
+			case PRINT: {
+				int res = append_outbuff(pspace->space);
+				if( res < 0 ){
+					return res;
+				}
+				break;
+			}
 
 			case SUBST:
-				replace(pspace, cmd->text, cmd->regex, 0);
+				replace(pspace, cmd->text, cmd->regex, SFLAG_G);
 			break;
 
 			case GROUP:
@@ -379,10 +489,16 @@ int run_line(scmd_t *cmd_list, sspace_t *pspace, sspace_t *hspace,
 	return RCONT;
 }
 
-static void reset_space(sspace_t *pspace){
-	free(pspace->space);
-	pspace->is_deleted = 0;
-	pspace->len = 0;
+static int print_space(sspace_t *space){
+	if( !space->is_deleted ){
+		int res = append_outbuff(space->space);
+		if( res < 0 ){
+			return res;
+		}
+	}
+	fmtprintout("%s", outbuff);
+	outbuff[0] = '\0';
+	return 0;
 }
 
 int run_script(const char script[], int fd, unsigned int flags){
@@ -391,35 +507,36 @@ int run_script(const char script[], int fd, unsigned int flags){
 	if( result != 0 ){
 		return result;
 	}
-	sspace_t *pspace = NULL, hspace;
+	sspace_t pspace = {NULL, 0, {NULL}, 0, 0, NULL, 0, 0}, hspace;
 	enum cmd_result code = RNONE;
 	int line = 1, nflag = flags & NFLAG;
-
-	while( (result = s_getline(&pspace, fd) > 0) ){
-		/*fmtprint(STDOUT, "\n\n[LINE] '%s'\n\n", pspace->text);*/
+	TRY_REALLOC(outbuff, MIN_CHUNK);
+	TRY_REALLOC(sub_buff, MIN_CHUNK);
+	outbuff[0] = '\0';
+	sub_buff[0] = '\0';
+	while( (result = s_getline(&pspace, fd) > 0 ) ){
 		if( code != RNONE ){
-			if( code == RPRINT ){
-				fmtprint(STDOUT, "%s", pspace->space);
+			result = print_space(&pspace);
+			if( result < 0 ){
+				goto exit;
 			}
-			if( !pspace->is_deleted && !nflag ){
-				fmtprint(STDOUT, "%s", pspace->space);
-			}
-			reset_space(pspace);
 			switch(code){
 				case RQUIT:
 					return SUCCESS;
 				default:
+					if( code < 0 ){
+						result = code;
+						goto exit;
+					}
 				break;
 			}
 		}
-		code = run_line(cmd_list, pspace, &hspace, line);
+		pspace.is_deleted = nflag;
+		code = run_line(cmd_list, &pspace, &hspace, line);
 		line++;
 	}
-	if( code == RPRINT ){
-		fmtprint(STDOUT, "%s", pspace->space);
-	}
-	if( !pspace->is_deleted && !nflag ){
-		fmtprint(STDOUT, "%s", pspace->space);
-	}
+	result = print_space(&pspace);
+exit:
+	/* TODO: clean */
 	return result;
 }

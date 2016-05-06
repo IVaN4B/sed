@@ -5,7 +5,7 @@
 PROJECT=sed
 
 CC=gcc
-CFLAGS=-g -Wall -m64
+CFLAGS=-g -Wall -m64 -DDEBUG
 LDFLAGS=
 
 OBJEXT=o

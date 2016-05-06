@@ -78,139 +78,105 @@ void fmtprint(int fd, const char *str, ...){
 	va_end(argptr);
 }
 
-int s_getline(sspace_t **spaceptr, int fd){
-	assert(spaceptr != NULL);
-	char buff[BUFF_SIZE];
-	char *it = NULL, *tmp = NULL;
-	int has_line = 0;
-	int cnt = 0, nbytes = 0, nread = 0, result = 0;
-	if( *spaceptr == NULL ){
-		*spaceptr = malloc(sizeof(sspace_t));
-		if( *spaceptr == NULL ){
-			return -errno;
-		}
-		(*spaceptr)->buff = NULL;
-		(*spaceptr)->buff_len = 0;
-		(*spaceptr)->offset = 0;
-		(*spaceptr)->is_deleted = 0;
-	}
-	sspace_t *space = *spaceptr;
-	if( space->len == 0 || space->text == NULL ){
-		space->text = malloc(CHUNK);
-		space->len = CHUNK;
-	}
-	char *rtok = NULL;
-	int avail = space->len;
-	int total = 0;
-	if( space->buff_len > 0 ){
-		space->text = malloc(space->buff_len+1);
-		if( space->text == NULL ){
-			return -errno;
-		}
-		it = space->text;
-		rtok = &space->buff[space->offset];
-		cnt = space->buff_len - space->offset;
-		int len = cnt;
-		for(nread = 0; nread < len; nread++, total++, cnt--){
-			*it++ = *rtok;
-			if( *rtok == NEWLINE ){
-				has_line = 1;
-				*it = '\0';
-				break;
-			}
-			rtok++;
-		}
-	}
-	if( cnt <= 0 ){
-		free(space->buff);
-		space->buff = NULL;
-		space->buff_len = 0;
-		space->offset = 0;
-	}
-	int can_seek = 0;
-	while( !has_line ){
-		nread = 0;
-		int curpos = lseek(fd, 0, SEEK_CUR);
-		if( curpos < 0 ){
-			can_seek = 0;
-		}
+static int s_getc(sspace_t *space, int fd){
+	assert(space != NULL);
 
-		if( can_seek ){
-			int offset = lseek(fd, curpos, SEEK_DATA);
-			if( offset < 0 && errno != EINVAL ){
-				if( errno == ENXIO ){
-					result = 0;
-					break;
-				}else{
-					return -errno;
-				}
-			}
-		}
-		nbytes = read(fd, buff, BUFF_SIZE);
-		if( nbytes < 0 ){
-			return -errno;
-		}
+	if( space->offset > 0 && space->offset < space->nread ){
+		return space->buff[space->offset++];
+	}
+	if( space->offset == space->nread ) space->offset = 0;
 
-		if( nbytes == 0 ){
-			result = 0;
-			break;
-		}
-
-		if( it == NULL ){
-			it = space->text;
-		}
-
-		char *tok = buff;
-		if( cnt == 0 ) cnt = nbytes;
-		for(nread = 0; nread < nbytes; nread++, total++, cnt--){
-			if( avail < 2 ){
-				if( space->len > CHUNK ){
-					avail = space->len;
-					space->len *= 2;
-				}else{
-					space->len += CHUNK;
-					avail = CHUNK;
-				}
-				tmp = realloc(space->text, space->len);
-				if( tmp == NULL ){
-					return -errno;
-				}
-				space->text = tmp;
-				it = &space->text[total];
-				tmp = NULL;
-			}
-			*it++ = *tok;
-			avail--;
-			if( *tok == NEWLINE ){
-				has_line = 1;
-				*it = '\0';
-				break;
-			}
-			tok++;
-		}
+	int can_seek = 0, nbytes = 0;
+	int curpos = lseek(fd, 0, SEEK_CUR);
+	if( curpos < 0 ){
+		can_seek = 0;
 	}
 
-	cnt--;
-	nread++;
-	if( cnt > 0 ){
-		result = 1;
-		if( space->buff == NULL ){
-			space->buff = malloc(cnt+1);
-			space->offset = 0;
-			if( space->buff == NULL ){
+	if( can_seek ){
+		int offset = lseek(fd, curpos, SEEK_DATA);
+		if( offset < 0 && errno != EINVAL ){
+			if( errno == ENXIO ){
+				space->buff[space->offset] = S_EOF;
+			}else{
 				return -errno;
 			}
-			space->buff_len = cnt;
-			strncpy(space->buff, &buff[nread], cnt);
-			nread = 0;
 		}
-		space->offset += nread;
-	}else if( space->buff != NULL ){
-		space->buff_len = 0;
-		space->offset = 0;
-		free(space->buff);
-		space->buff = NULL;
 	}
-	if( has_line ) result = 1;
-	return result;
+	nbytes = read(fd, space->buff, BUFF_SIZE);
+	space->nread = nbytes;
+	if( nbytes < 0 ){
+		return -errno;
+	}
+
+	if( nbytes == 0 ){
+		space->buff[space->offset] = S_EOF;
+	}
+	return space->buff[space->offset++];
+}
+
+int s_getline(sspace_t *space, int fd){
+	assert(space != NULL);
+	char **lineptr = &space->text;
+	size_t *n = &space->len;
+
+	int nchars_avail;	/* Allocated but unused chars in *LINEPTR.	*/
+	char *read_pos;	/* Where we're reading into *LINEPTR. */
+	int ret;
+
+	if( !*lineptr ){
+		*n = MIN_CHUNK;
+		*lineptr = malloc(*n);
+		if( !*lineptr ){
+			errno = ENOMEM;
+			return -1;
+		}
+	}
+
+	nchars_avail = *n;
+	read_pos = *lineptr;
+
+	for(;;){
+		int c = s_getc(space, fd);
+		if( c < S_EOF ){
+			return c;
+		}
+
+		assert((*lineptr + *n) == (read_pos + nchars_avail));
+		if (nchars_avail < 2) {
+			if (*n > MIN_CHUNK)
+				*n *= 2;
+			else
+				*n += MIN_CHUNK;
+
+			nchars_avail = *n + *lineptr - read_pos;
+			*lineptr = realloc (*lineptr, *n);
+			if (!*lineptr) {
+				errno = ENOMEM;
+				return -1;
+			}
+			read_pos = *n - nchars_avail + *lineptr;
+			assert((*lineptr + *n) == (read_pos + nchars_avail));
+		}
+
+		if (c == S_EOF) {
+			/* Return partial line, if any.	*/
+			if (read_pos == *lineptr)
+				return -1;
+			else
+				break;
+		}
+
+		*read_pos++ = c;
+		nchars_avail--;
+
+		if( c == NEWLINE )
+			/* Return the line.	*/
+			break;
+	}
+
+	/* Done - NUL terminate and return the number of chars read. */
+	*read_pos = '\0';
+
+	ret = read_pos - *lineptr;
+	return ret;
 }

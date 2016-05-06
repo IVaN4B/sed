@@ -16,6 +16,17 @@
 #define NFLAG 1
 #define EFLAG 2
 #define SFLAG_G 1
+
+#define IS_NUM(tok) tok >= '0' && tok <= '9'
+
+#define TRY_REALLOC(text, size) {					\
+		char *__tmp = realloc(text, size); 			\
+		if( __tmp == NULL ){						\
+			return -errno;	 						\
+		} 								 			\
+		text = __tmp;								\
+	}
+
 enum serrors{
 	SUCCESS,
 	EREADFILE,
@@ -64,10 +75,10 @@ enum saddr_type{
 
 typedef struct sspace_t{
 	char *text;
-	int len;
-	char *buff;
-	int buff_len;
+	size_t len;
+	char buff[BUFF_SIZE];
 	int offset;
+	int nread;
 	char *space;
 	int space_len;
 	int is_deleted;
