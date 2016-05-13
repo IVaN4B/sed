@@ -21,19 +21,23 @@ int main(int argc, char *argv[]){
 	"\nOptions:\n"
 	"\t-n\tSuppress pattern buffer printing\n"
 	"\t-f\tExecute script from file\n"
+	"\t-E\tExtended regex\n"
 	"\t-h\tDisplay this help message and exit\n"
 	"\t-V\tDisplay version and exit\n";
 	const char *verstr = "sed v0.1";
-	const char *opts = "nf:hV";
+	const char *opts = "Enf:hV";
 	const char *script = "";
 	unsigned int flags = 0U;
-	int nflag = 0, hflag = 0, vflag = 0, fflag = 0;
+	int hflag = 0, vflag = 0, fflag = 0;
 	int c;
 	while( (c = getopt(argc, argv, opts)) != -1 ){
 		switch(c){
 			case 'n':
-				nflag = 1;
 				flags |= NFLAG;
+			break;
+
+			case 'E':
+				flags |= EFLAG;
 			break;
 
 			case 'f':

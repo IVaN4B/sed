@@ -13,11 +13,13 @@
 #define SPACE ' '
 #define COMMA ','
 #define COMMENT '#'
-#define NFLAG 1
-#define EFLAG 2
-#define SFLAG_G 1
+#define NFLAG 	1
+#define EFLAG   (NFLAG   << 1)
+#define SFLAG_G (EFLAG   << 1)
+#define SFLAG_I (SFLAG_G << 1)
+#define SFLAG_P (SFLAG_I << 1)
 
-#define IS_NUM(tok) tok >= '0' && tok <= '9'
+#define IS_NUM(tok) (tok >= '0' && tok <= '9')
 
 #define TRY_REALLOC(text, size) {					\
 		char *__tmp = realloc(text, size); 			\
@@ -27,9 +29,10 @@
 		text = __tmp;								\
 	}
 
-enum serrors{
+enum serror{
 	SUCCESS,
 	EREADFILE,
+	EPARSE,
 	EINVALTOKEN,
 	EILLEGALCHAR,
 	ENOREGEX,
@@ -37,7 +40,11 @@ enum serrors{
 	EWRONGREGEX,
 	EMALLOC,
 	ESOVERFLOW,
-	ENEWLINE,
+	EGROUPNOEND,
+	ENOCMD,
+	ENOLABEL,
+	ENOPOS,
+	EUNEXPECTED,
 	ERR_MAX
 };
 
@@ -97,6 +104,7 @@ typedef struct scmd_t{
 	enum scmd_type code;
 	regex_t *regex;
 	char text[BUFF_SIZE];
+	unsigned int flags;
 	int result;
 } scmd_t;
 
@@ -105,6 +113,7 @@ static const char tokens[] = "s{}bdypiaq:ghx!";
 int parse_script(const char script[], scmd_t **cmd_list, unsigned int eflags);
 int run_script(const char script[], int fd, unsigned int flags);
 int run_line(scmd_t *cmd_list, sspace_t *pspace, sspace_t *hspace,
-												 const int line);
+												 const int line,
+												 unsigned int flags);
 const char *err_msg(int err_code);
 #endif
