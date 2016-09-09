@@ -35,9 +35,12 @@ static int match(const char *string, regex_t *pattern){
 	return 1;
 }
 
-static int substring(char *strp, char *repl, int repl_len, int mstart,
-														   int mend,
-														   int n){
+static int substring(char *strp,
+					 char *repl,
+					 int repl_len,
+					 int mstart,
+					 int mend,
+					 int n){
 	int count = sub_strlen;
 	for(; strp[n]; n++){
 		if( sub_buff_len < count ){
