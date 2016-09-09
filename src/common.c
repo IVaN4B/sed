@@ -44,7 +44,8 @@ static void printc(int fd, char c, char buff[], int *nwrite){
 	int flush = (*nwrite >= BUFF_SIZE-1 || c == '\n' || c == '\0');
 	if( *nwrite > BUFF_SIZE ) *nwrite = BUFF_SIZE-1;
 	if( flush ){
-		write(STDOUT, buff, *nwrite);
+		int rc = write(STDOUT, buff, *nwrite);
+		assert(rc >= 0);
 		*nwrite = 0;
 	}
 	buff[(*nwrite)++] = c;
