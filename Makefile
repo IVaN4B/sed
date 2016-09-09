@@ -3,6 +3,7 @@
 
 # Variables--------------------------------------------------------------------
 PROJECT=sed
+TESTSCRIPT=tests/test
 
 CC=gcc
 CFLAGS=-g -Wall -m64 #-DDEBUG
@@ -42,5 +43,8 @@ remake: clean all
 
 run: $(TARGET)
 	./$(TARGET) $(ARGS)
+
+test: $(TARGET)
+	./$(TESTSCRIPT)
 
 .PHONY: all clean cleanobj remake run
