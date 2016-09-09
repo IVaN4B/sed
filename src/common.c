@@ -38,10 +38,89 @@ static void itoa(int n, char s[]){
 	s[i] = '\0';
 	strrev(s);
 }
+static void printc(int fd, char c, char buff[], int *nwrite){
+	assert(buff != NULL);
+	assert(nwrite != NULL);
+	int flush = (*nwrite >= BUFF_SIZE-1 || c == '\n' || c == '\0');
+	if( *nwrite > BUFF_SIZE ) *nwrite = BUFF_SIZE-1;
+	if( flush ){
+		write(STDOUT, buff, *nwrite);
+		*nwrite = 0;
+	}
+	buff[(*nwrite)++] = c;
+}
 
-void fmtprint(int fd, const char *str, ...){
+void fmtprint(int fd, const char *fmt, ...){
+	assert(fmt != NULL);
+	char buff[BUFF_SIZE];
+	char chunk[MIN_CHUNK];
+	memset(buff, 0, BUFF_SIZE);
+	memset(chunk, 0, MIN_CHUNK);
+	va_list argptr;
+	va_start(argptr, fmt);
+	int nwrite = 0;
+	for(; *fmt; fmt++){
+		if( *fmt == '%' ){
+			fmt++;
+			switch(*fmt){
+				case 'd': {
+					int num = va_arg(argptr, int);
+					itoa(num, chunk);
+					for(int i = 0; chunk[i]; i++){
+						printc(fd, chunk[i], buff, &nwrite);
+					}
+				}
+				break;
+
+				case 's': {
+					const char *s = va_arg(argptr, const char*);
+					for(; *s; s++){
+						printc(fd, *s, buff, &nwrite);
+					}
+				}
+				break;
+
+				case 'c': {
+					char c = va_arg(argptr, int);
+					printc(fd, c, buff, &nwrite);
+				}
+				break;
+
+				case '%':
+					printc(fd, '%', buff, &nwrite);
+				break;
+
+				case '\0':
+					printc(fd, '\0', buff, &nwrite);
+					return;
+			}
+			continue;
+		}
+		printc(fd, *fmt, buff, &nwrite);
+	}
+	printc(fd, '\0', buff, &nwrite);
+	va_end(argptr);
+}
+
+#define OUT_PUSH(str, len) { \
+	int left = len, str_pos = 0; \
+	while( left > 0 ){ \
+		while( left > 0 && buff_pos < BUFF_SIZE ){ \
+			out_buff[buff_pos++] = str[str_pos++]; \
+			left--; \
+		} \
+		out_buff[BUFF_SIZE] = '\0'; \
+		write(fd, out_buff, BUFF_SIZE); \
+		buff_pos = 0; \
+	} \
+}
+
+/*void fmtprint(int fd, const char *str, ...){
 	int num;
 	char buff[NUM_BUFF], c;
+	char out_buff[BUFF_SIZE];
+	memset(&out_buff, 0, BUFF_SIZE);
+	int buff_pos = 0;
 	const char *s;
 	va_list argptr;
 	va_start(argptr, str);
@@ -52,12 +131,12 @@ void fmtprint(int fd, const char *str, ...){
 				case 'd':
 					num = va_arg(argptr, int);
 					itoa(num, buff);
-					write(fd, buff, strlen(buff));
+					OUT_PUSH(buff, strlen(buff));
 				break;
 				case 's':
 					s = va_arg(argptr, const char*);
 					if( s != NULL ){
-						write(fd, s, strlen(s));
+						OUT_PUSH(s, strlen(s));
 					}
 				break;
 				case 'c':
@@ -76,7 +155,7 @@ void fmtprint(int fd, const char *str, ...){
 		}
 	}
 	va_end(argptr);
-}
+}*/
 
 static int s_getc(sspace_t *space, int fd){
 	assert(space != NULL);
