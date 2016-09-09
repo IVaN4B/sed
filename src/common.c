@@ -102,61 +102,6 @@ void fmtprint(int fd, const char *fmt, ...){
 	va_end(argptr);
 }
 
-#define OUT_PUSH(str, len) { \
-	int left = len, str_pos = 0; \
-	while( left > 0 ){ \
-		while( left > 0 && buff_pos < BUFF_SIZE ){ \
-			out_buff[buff_pos++] = str[str_pos++]; \
-			left--; \
-		} \
-		out_buff[BUFF_SIZE] = '\0'; \
-		write(fd, out_buff, BUFF_SIZE); \
-		buff_pos = 0; \
-	} \
-}
-
-/*void fmtprint(int fd, const char *str, ...){
-	int num;
-	char buff[NUM_BUFF], c;
-	char out_buff[BUFF_SIZE];
-	memset(&out_buff, 0, BUFF_SIZE);
-	int buff_pos = 0;
-	const char *s;
-	va_list argptr;
-	va_start(argptr, str);
-	for(; *str; str++){
-		if (*str == '%'){
-			str++;
-			switch(*str){
-				case 'd':
-					num = va_arg(argptr, int);
-					itoa(num, buff);
-					OUT_PUSH(buff, strlen(buff));
-				break;
-				case 's':
-					s = va_arg(argptr, const char*);
-					if( s != NULL ){
-						OUT_PUSH(s, strlen(s));
-					}
-				break;
-				case 'c':
-					c = va_arg(argptr, int);
-					write(fd, &c, 1);
-				break;
-				case '%':
-					write(fd, "%", 1);
-				break;
-				case '\0': return;
-				default: break;
-			}
-		}
-		else{
-		write(fd, str, 1);
-		}
-	}
-	va_end(argptr);
-}*/
-
 static int s_getc(sspace_t *space, int fd){
 	assert(space != NULL);
 
