@@ -113,7 +113,6 @@ static int replace(sspace_t *space, char *replacement, regex_t *pattern,
 
 	int space_len = strlen(space->space);
 	int ngroups = pattern->re_nsub+1;
-	int reg_flags = 0;
 	regmatch_t *groups = malloc(ngroups*sizeof(regmatch_t));
 
 	if( sub_buff_len < space->len ){
@@ -135,7 +134,6 @@ static int replace(sspace_t *space, char *replacement, regex_t *pattern,
 				if( pm.rm_so == (size_t)-1) break;
 
 				int bmatch = offset+pm.rm_so;
-				int ematch = offset+pm.rm_eo;
 				int len = pm.rm_eo-pm.rm_so;
 				if( imatch < GRP_MAX ){
 					strncpy(grp[imatch++], space->space+bmatch, len);
@@ -352,7 +350,9 @@ int run_script(const char script[], int fd, unsigned int flags){
 	if( result != 0 ){
 		return result;
 	}
-	sspace_t pspace = {NULL, 0, {NULL}, 0, 0, NULL, 0, 0}, hspace = pspace;
+	sspace_t pspace, hspace;
+	memset(&pspace, 0, sizeof(sspace_t));
+	memset(&hspace, 0, sizeof(sspace_t));
 	enum cmd_result code = RNONE;
 	int line = 1, nflag = flags & NFLAG;
 	TRY_REALLOC(outbuff, MIN_CHUNK);

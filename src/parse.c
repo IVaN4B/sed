@@ -109,7 +109,7 @@ static int read_buff(const char **pos, char savech, char *buff, int *linenum,
 			return EUNEXPECTED;
 		}
 		if( *tok == NEWLINE ){
-			*linenum++;
+			(*linenum)++;
 			if( prev != ESCAPE_CHAR && savech != NEWLINE ){
 				*pos = tok;
 				return EUNEXPECTED;
@@ -143,7 +143,7 @@ int parse_script(const char script[], scmd_t **cmd_list, unsigned int eflags){
 		 *iter = txt_buff, code = '\0';
 	int is_cmd = 0, is_end = 0, linenum = 1, reg_flags = 0, cmd_flags = 0,
 		stacki = 0;
-	scmd_t *current = NULL, *group_cmd = NULL, *grpstack[STACK_SIZE];
+	scmd_t *current = NULL, *grpstack[STACK_SIZE];
 	saddr_t *baddr = NULL, *eaddr = NULL;
 	regex_t *cmd_re = NULL;
 	reg_flags |= REG_NEWLINE;
@@ -386,7 +386,7 @@ int parse_script(const char script[], scmd_t **cmd_list, unsigned int eflags){
 		tok++;
 	}
 	if( stacki != 0 ){
-		if( code != ENDGROUP || stacki > 1 ){
+		if( code != '}' || stacki > 1 ){
 			parse_error(*(tok-1), CURPOS, linenum, EGROUPNOEND, "");
 			return EPARSE;
 		}

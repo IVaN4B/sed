@@ -55,25 +55,6 @@ enum cmd_result{
 	RPRINT,
 };
 
-enum scmd_type{
-	SUBST,
-	GROUP,
-	ENDGROUP,
-	BRANCH,
-	DELETE,
-	YANK,
-	PRINT,
-	INSERT,
-	APPEND,
-	QUIT,
-	LABEL,
-	GETSPACE,
-	HOLDSPACE,
-	XCHGSPACE,
-	INVERT,
-	SCMD_NUM,
-};
-
 enum saddr_type{
 	REGEX_ADDR,
 	LINE_ADDR,
@@ -101,7 +82,7 @@ typedef struct scmd_t{
 	struct scmd_t *next;
 	struct scmd_t *cmd; /* Pointer to cmd in group */
 	struct saddr_t *baddr, *eaddr;
-	enum scmd_type code;
+	char code;
 	regex_t *regex;
 	char text[BUFF_SIZE];
 	unsigned int flags;
