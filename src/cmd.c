@@ -265,24 +265,16 @@ int run_line(scmd_t *cmd_list, sspace_t *pspace, sspace_t *hspace,
 			break;
 
 			case 'g':
-				if( hspace->space != NULL ){
-					if( pspace->space != NULL ){
-						free(pspace->space);
-					}
-					pspace->space = hspace->space;
+				if( hspace->space != NULL && hspace->len > 0 ){
+					TRY_REALLOC(pspace->space, hspace->len);
+					memcpy(pspace->space, hspace->space, hspace->len);
 				}
 			break;
 
 			case 'h':
-				if( hspace->space != NULL ){
-					free(hspace->space);
-				}
-				hspace->space = malloc(sizeof(pspace->len));
-				if( pspace->space[0] != '\0' ){
+				if( pspace->len > 0 ){
+					TRY_REALLOC(hspace->space, pspace->len);
 					memcpy(hspace->space, pspace->space, pspace->len);
-					hspace->len = pspace->len;
-				}else{
-					hspace->space[0] = '\0';
 				}
 			break;
 
